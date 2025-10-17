@@ -1,0 +1,4 @@
+[workspace]
+resolver = "3"
+# members = ["medbook-core","medbook-events", "medbook-userservice", "medbook-paymentservice", "medbook-orderservice", "medbook-paymentservice"]
+members = ["medbook-core","medbook-events", "medbook-inventoryservice","medbook-orderservice", "medbook-userservice"]
