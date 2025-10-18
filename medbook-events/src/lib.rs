@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OrderItem {
     pub product_id: i32,
     pub quantity: i32,
@@ -20,6 +20,17 @@ pub struct OrderReservedEvent {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct OrderRejectedEvent {
+    pub order_id: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OrderCancelledEvent {
+    pub order_id: i32,
+    pub order_items: Vec<OrderItem>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct OrderCancelSuccessEvent {
     pub order_id: i32,
 }
 

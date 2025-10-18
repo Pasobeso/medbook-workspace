@@ -15,6 +15,7 @@ use medbook_core::{
     middleware::{self},
     outbox,
 };
+use medbook_events::OrderCancelledEvent;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,7 @@ pub fn routes() -> Router<AppState> {
             .route("/", routing::post(create_order))
             .route("/my-orders", routing::get(get_my_orders))
             .route("/{id}", routing::get(get_order))
-            // .route("/{id}", routing::delete(delete_order))
+            .route("/{id}", routing::delete(cancel_order))
             .route_layer(axum::middleware::from_fn(
                 middleware::patients_authorization,
             )),
@@ -52,7 +53,7 @@ async fn get_orders(State(state): State<AppState>) -> Result<impl IntoResponse, 
         .context("Failed to obtain a DB connection pool")?;
 
     let orders: Vec<OrderEntity> = orders::table
-        .filter(orders::deleted_at.is_null())
+        // .filter(orders::deleted_at.is_null())
         .get_results(conn)
         .await
         .context("Failed to get orders")?;
@@ -84,7 +85,7 @@ async fn get_order(
 
     let order: QueryResult<OrderEntity> = orders::table
         .find(id)
-        .filter(orders::deleted_at.is_null())
+        // .filter(orders::deleted_at.is_null())
         .filter(orders::patient_id.eq(patient_id))
         .get_result(conn)
         .await;
@@ -130,7 +131,7 @@ async fn get_my_orders(
         .context("Failed to obtain a DB connection pool")?;
 
     let orders: Vec<OrderEntity> = orders::table
-        .filter(orders::deleted_at.is_null())
+        // .filter(orders::deleted_at.is_null())
         .filter(orders::patient_id.eq(patient_id))
         .get_results(conn)
         .await
@@ -169,36 +170,6 @@ async fn get_my_orders(
         message: Some("Get my orders successfully"),
     })
 }
-
-/// Soft-delete an order by setting `deleted_at` to the current timestamp.
-// async fn delete_order(
-//     Path(id): Path<i32>,
-//     State(state): State<AppState>,
-//     Extension(patient_id): Extension<i32>,
-// ) -> Result<impl IntoResponse, AppError> {
-//     let conn = &mut state
-//         .db_pool
-//         .get()
-//         .await
-//         .context("Failed to obtain a DB connection pool")?;
-
-//     let order: QueryResult<OrderEntity> = diesel::update(orders::table)
-//         .filter(orders::id.eq(id))
-//         .filter(orders::deleted_at.is_null())
-//         .filter(orders::patient_id.eq(patient_id))
-//         .set(orders::deleted_at.eq(diesel::dsl::now))
-//         .returning(OrderEntity::as_returning())
-//         .get_result(conn)
-//         .await;
-
-//     match order {
-//         Ok(order) => Ok(Json(order)),
-//         Err(err) => match err {
-//             DieselError::NotFound => Err(AppError::NotFound),
-//             _ => Err(AppError::Other(err.into())),
-//         },
-//     }
-// }
 
 /// Create a new order for the patient and publish an outbox event for inventory reservation.
 #[derive(Deserialize)]
@@ -264,5 +235,67 @@ async fn create_order(
     Ok(StdResponse {
         data: Some(order),
         message: Some("Create order succesfully"),
+    })
+}
+
+async fn cancel_order(
+    Path(id): Path<i32>,
+    State(state): State<AppState>,
+    Extension(patient_id): Extension<i32>,
+) -> Result<impl IntoResponse, AppError> {
+    let conn = &mut state
+        .db_pool
+        .get()
+        .await
+        .context("Failed to obtain a DB connection pool")?;
+
+    let cancelled_order = conn
+        .transaction(move |conn| {
+            Box::pin(async move {
+                let cancelled_order: OrderEntity = diesel::update(orders::table.find(id))
+                    .filter(orders::deleted_at.is_null())
+                    .filter(orders::patient_id.eq(patient_id))
+                    .filter(orders::status.eq("RESERVED"))
+                    .set((
+                        orders::deleted_at.eq(diesel::dsl::now),
+                        orders::status.eq("CANCEL_PENDING"),
+                    ))
+                    .returning(OrderEntity::as_returning())
+                    .get_result(conn)
+                    .await
+                    .map_err(|_| AppError::NotFound)?;
+
+                let order_items: Vec<CartItemEntity> = cart_items::table
+                    .filter(cart_items::cart_id.eq(cancelled_order.cart_id))
+                    .get_results(conn)
+                    .await
+                    .context("Failed to get cart items")?;
+
+                let order_items = order_items
+                    .iter()
+                    .map(|item| medbook_events::OrderItem {
+                        product_id: item.product_id,
+                        quantity: item.quantity,
+                    })
+                    .collect();
+
+                outbox::publish(
+                    conn,
+                    "inventory.cancel_order".into(),
+                    OrderCancelledEvent {
+                        order_id: cancelled_order.id,
+                        order_items,
+                    },
+                )
+                .await?;
+
+                Ok::<OrderEntity, AppError>(cancelled_order)
+            })
+        })
+        .await?;
+
+    Ok(StdResponse {
+        data: Some(cancelled_order),
+        message: Some("Cancelled order successfully"),
     })
 }
