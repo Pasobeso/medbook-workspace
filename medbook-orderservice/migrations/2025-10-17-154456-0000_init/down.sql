@@ -3,3 +3,4 @@
 drop table carts cascade;
 drop table cart_items cascade;
 drop table orders cascade;
+drop table payments cascade;

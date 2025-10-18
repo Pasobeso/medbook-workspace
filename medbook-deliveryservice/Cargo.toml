@@ -1,12 +1,12 @@
 [package]
-name = "medbook-orderservice"
+name = "medbook-deliveryservice"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 # --- Core infrastructure ---
 anyhow = "1.0.100"
-axum = { version = "0.8.4", features = ["macros"] }
+axum = "0.8.4"
 diesel = { version = "2.2.12", features = ["chrono", "serde_json", "uuid"] }
 diesel-async = { version = "0.6.1", features = ["postgres", "tokio", "pool", "bb8"] }
 dotenvy = "0.15.7"

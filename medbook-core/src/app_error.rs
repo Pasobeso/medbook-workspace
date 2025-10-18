@@ -5,13 +5,13 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::error;
 
 use crate::aliases::DieselError;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct StdResponse<T: Serialize, M: ToString> {
     pub data: Option<T>,
     pub message: Option<M>,
@@ -33,6 +33,12 @@ pub enum AppError {
     )]
     NotFound,
 
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Forbidden resource: {0}")]
+    ForbiddenResource(String),
+
     #[error(transparent)]
     Other(#[from] anyhow::Error),
 }
@@ -45,6 +51,8 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::ServiceUnreachable(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string()),
             AppError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
+            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
+            AppError::ForbiddenResource(_) => (StatusCode::FORBIDDEN, self.to_string()),
             AppError::Other(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Internal server error".into(),

@@ -21,11 +21,15 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::get_product_unit_prices,
-    models::{CartItemEntity, CreateOrderEntity, OrderEntity},
+    api::{
+        deliveries::get_delivery_address_as_value_with_ownership_check,
+        products::get_product_unit_prices,
+    },
+    models::{CartItemEntity, CreateOrderEntity, CreatePaymentEntity, OrderEntity, PaymentEntity},
     schema::{
         cart_items::{self},
         orders::{self},
+        payments::{self},
     },
 };
 
@@ -39,6 +43,7 @@ pub fn routes() -> Router<AppState> {
             .route("/my-orders", routing::get(get_my_orders))
             .route("/{id}", routing::get(get_order))
             .route("/{id}", routing::delete(cancel_order))
+            .route("/{id}/payment", routing::post(create_payment_for_order))
             .route_layer(axum::middleware::from_fn(
                 middleware::patients_authorization,
             )),
@@ -136,6 +141,7 @@ async fn get_my_orders(
     let orders: Vec<OrderEntity> = orders::table
         // .filter(orders::deleted_at.is_null())
         .filter(orders::patient_id.eq(patient_id))
+        .order_by(orders::updated_at.desc())
         .get_results(conn)
         .await
         .context("Failed to get my orders")?;
@@ -180,6 +186,7 @@ async fn get_my_orders(
 /// Create a new order for the patient and publish an outbox event for inventory reservation.
 #[derive(Deserialize)]
 struct CreateOrderReq {
+    delivery_address_id: i32,
     cart_id: i32,
 }
 
@@ -194,12 +201,23 @@ async fn create_order(
         .await
         .context("Failed to obtain a DB connection pool")?;
 
+    let delivery_address = get_delivery_address_as_value_with_ownership_check(
+        state.http_client,
+        body.delivery_address_id,
+        patient_id,
+    )
+    .await
+    .map_err(|_| {
+        AppError::ForbiddenResource("Patient does not own this delivery address".into())
+    })?;
+
     let order = conn
         .transaction(move |conn| {
             Box::pin(async move {
                 let order = diesel::insert_into(orders::table)
                     .values(CreateOrderEntity {
                         patient_id,
+                        delivery_address,
                         cart_id: body.cart_id,
                         status: "PENDING".into(),
                     })
@@ -303,5 +321,101 @@ async fn cancel_order(
     Ok(StdResponse {
         data: Some(cancelled_order),
         message: Some("Cancelled order successfully"),
+    })
+}
+
+#[derive(Deserialize)]
+pub struct CreatePaymentForOrderReq {
+    pub provider: String,
+}
+
+#[derive(Serialize)]
+pub struct CreatePaymentForOrderRes {
+    pub payment: PaymentEntity,
+    pub updated_order: OrderEntity,
+}
+
+pub async fn create_payment_for_order(
+    Path(id): Path<i32>,
+    State(state): State<AppState>,
+    Extension(patient_id): Extension<i32>,
+    Json(body): Json<CreatePaymentForOrderReq>,
+) -> Result<impl IntoResponse, AppError> {
+    let conn = &mut state
+        .db_pool
+        .get()
+        .await
+        .context("Failed to obtain a DB connection pool")?;
+
+    match body.provider.as_str() {
+        "qr_payment" => {}
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "{} is not a valid payment provider",
+                body.provider
+            )));
+        }
+    }
+
+    let order: OrderEntity = orders::table
+        .find(id)
+        .filter(orders::patient_id.eq(patient_id))
+        .filter(orders::status.eq("RESERVED"))
+        .get_result(conn)
+        .await
+        .map_err(|_| AppError::NotFound)?;
+
+    let order_items: Vec<CartItemEntity> = cart_items::table
+        .filter(cart_items::cart_id.eq(order.cart_id))
+        .get_results(conn)
+        .await
+        .context("Failed to get order items")?;
+
+    let cart_item_ids = order_items.iter().map(|item| item.product_id).collect();
+    let unit_prices = get_product_unit_prices(state.http_client, cart_item_ids).await?;
+    let total_price: f32 = order_items
+        .iter()
+        .map(|item| unit_prices.get(&item.product_id).copied().unwrap_or(0.0))
+        .sum();
+
+    let (updated_order, payment) = conn
+        .transaction(move |conn| {
+            Box::pin(async move {
+                let updated_order = diesel::update(
+                    orders::table
+                        .find(id)
+                        .filter(orders::patient_id.eq(patient_id))
+                        .filter(orders::status.eq("RESERVED")),
+                )
+                .set(orders::status.eq("PAYMENT_PENDING"))
+                .returning(OrderEntity::as_returning())
+                .get_result(conn)
+                .await
+                .context("Failed to update order")?;
+
+                let payment = diesel::insert_into(payments::table)
+                    .values(CreatePaymentEntity {
+                        order_id: updated_order.id,
+                        amount: total_price,
+                        provider: body.provider,
+                        status: "PENDING".into(),
+                    })
+                    .returning(PaymentEntity::as_returning())
+                    .get_result(conn)
+                    .await
+                    .context("Failed to create payment")?;
+
+                Ok::<(OrderEntity, PaymentEntity), AppError>((updated_order, payment))
+            })
+        })
+        .await
+        .context("Transaction failed")?;
+
+    Ok(StdResponse {
+        data: Some(CreatePaymentForOrderRes {
+            payment,
+            updated_order,
+        }),
+        message: Some("Created payment successfully"),
     })
 }

@@ -6,7 +6,9 @@ use diesel_async::RunQueryDsl;
 use futures::future::BoxFuture;
 use lapin::{message::Delivery, options::BasicAckOptions};
 use medbook_core::app_state::AppState;
-use medbook_events::{OrderCancelSuccessEvent, OrderRejectedEvent, OrderReservedEvent};
+use medbook_events::{
+    DeliverySuccessEvent, OrderCancelSuccessEvent, OrderRejectedEvent, OrderReservedEvent,
+};
 use tracing::info;
 
 use crate::schema::orders;
@@ -75,43 +77,28 @@ pub fn order_cancel_success(
     })
 }
 
-// pub fn order_payment_success(
-//     delivery: Delivery,
-//     state: Arc<AppState>,
-// ) -> BoxFuture<'static, Result<()>> {
-//     Box::pin(async move {
-//         let conn = &mut state.db_pool.get().await?;
-//         let payload: OrderPaymentSuccessEvent =
-//             serde_json::from_str(str::from_utf8(&delivery.data)?)?;
+pub fn delivery_success(
+    delivery: Delivery,
+    state: Arc<AppState>,
+) -> BoxFuture<'static, Result<()>> {
+    Box::pin(async move {
+        let conn = &mut state.db_pool.get().await?;
+        let payload: DeliverySuccessEvent = serde_json::from_str(str::from_utf8(&delivery.data)?)?;
+        info!("Received event: {:?}", payload);
 
-//         info!("Received event: {:?}", payload);
+        diesel::update(orders::table)
+            .filter(orders::id.eq(payload.order_id))
+            .set(orders::status.eq("DELIVERED"))
+            .execute(conn)
+            .await?;
 
-//         conn.transaction(move |tx| {
-//             Box::pin(async move {
-//                 diesel::update(orders::table)
-//                     .filter(orders::id.eq(payload.order_id))
-//                     .set(orders::status.eq("PAYMENT_SUCCESS"))
-//                     .execute(tx)
-//                     .await?;
+        info!(
+            "Order #{} has been successfully delivered",
+            payload.order_id
+        );
 
-//                 outbox::publish(
-//                     tx,
-//                     "delivery.order_success".into(),
-//                     DeliveryOrderSuccessEvent {
-//                         order_id: payload.order_id,
-//                     },
-//                 )
-//                 .await?;
+        delivery.ack(BasicAckOptions::default()).await?;
 
-//                 info!("Order #{} has been successfully paid for", 0);
-
-//                 Ok::<_, anyhow::Error>(())
-//             })
-//         })
-//         .await?;
-
-//         delivery.ack(BasicAckOptions::default()).await?;
-
-//         Ok(())
-//     })
-// }
+        Ok(())
+    })
+}

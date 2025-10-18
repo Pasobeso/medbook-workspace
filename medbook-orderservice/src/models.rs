@@ -56,26 +56,43 @@ pub struct OrderEntity {
     pub patient_id: i32,
     pub status: String,
     pub order_type: String,
-    pub delivery_address: Option<Value>,
-    pub payment_id: Option<Uuid>,
+    pub delivery_address: Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
 }
-
-// #[derive(AsChangeset)]
-// #[diesel(table_name = crate::schema::orders)]
-// #[diesel(check_for_backend(diesel::pg::Pg))]
-// pub struct UpdateOrderEntity {
-//     pub status: Option<String>,
-//     pub payment_id: Option<Uuid>,
-// }
 
 #[derive(Insertable, Debug)]
 #[diesel(table_name = crate::schema::orders)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct CreateOrderEntity {
     pub patient_id: i32,
+    pub delivery_address: Value,
     pub cart_id: i32,
+    pub status: String,
+}
+
+#[derive(Queryable, Serialize, Selectable, Debug, Clone)]
+#[diesel(table_name = crate::schema::payments)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct PaymentEntity {
+    pub id: Uuid,
+    pub order_id: i32,
+    pub amount: f32,
+    pub status: String,
+    pub provider: String,
+    pub provider_ref: Option<String>,
+    pub failure_reason: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Insertable, Serialize, Deserialize, Debug)]
+#[diesel(table_name = crate::schema::payments)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct CreatePaymentEntity {
+    pub order_id: i32,
+    pub amount: f32,
+    pub provider: String,
     pub status: String,
 }

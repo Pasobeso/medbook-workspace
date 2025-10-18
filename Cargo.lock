@@ -378,6 +378,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a18ed336352031311f4e0b4dd2ff392d4fbb370777c9d18d7fc9d7359f73871"
 dependencies = [
  "axum-core 0.5.5",
+ "axum-macros",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -1911,6 +1912,34 @@ dependencies = [
  "futures-lite",
  "jsonwebtoken",
  "lapin",
+ "reqwest",
+ "rmq-wrappers",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "medbook-deliveryservice"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.8.6",
+ "chrono",
+ "diesel",
+ "diesel-async",
+ "dotenvy",
+ "futures",
+ "futures-lite",
+ "lapin",
+ "medbook-core",
+ "medbook-events",
  "reqwest",
  "rmq-wrappers",
  "serde",

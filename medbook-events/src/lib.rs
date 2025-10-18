@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -43,14 +44,13 @@ pub struct OrderPayRequestEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct OrderPaymentSuccessEvent {
-    pub payment_id: Uuid,
+pub struct DeliveryOrderRequestEvent {
     pub order_id: i32,
-    pub amount: f32,
-    pub provider: String,
+    pub order_type: String,
+    pub delivery_address: Value,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct DeliveryOrderSuccessEvent {
+pub struct DeliverySuccessEvent {
     pub order_id: i32,
 }

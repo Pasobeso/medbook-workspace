@@ -18,7 +18,7 @@ use medbook_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::get_product_unit_prices,
+    api::products::get_product_unit_prices,
     models::{CartEntity, CartItemEntity, CreateCartEntity, CreateCartItemEntity},
     schema::{
         cart_items::{self},
