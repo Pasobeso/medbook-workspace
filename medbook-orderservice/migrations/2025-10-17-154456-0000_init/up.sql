@@ -33,6 +33,7 @@ CREATE TABLE "orders" (
   "patient_id" integer NOT NULL,
   "status" text NOT NULL DEFAULT 'PENDING',
   "order_type" text NOT NULL DEFAULT 'PICKUP', -- PICKUP, DELIVERY,
+  "delivery_id" UUID,
   "delivery_address" JSONB NOT NULL,
   "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   "updated_at" TIMESTAMPTZ NOT NULL DEFAULT NOW(),

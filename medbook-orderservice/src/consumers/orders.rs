@@ -7,7 +7,8 @@ use futures::future::BoxFuture;
 use lapin::{message::Delivery, options::BasicAckOptions};
 use medbook_core::app_state::AppState;
 use medbook_events::{
-    DeliverySuccessEvent, OrderCancelSuccessEvent, OrderRejectedEvent, OrderReservedEvent,
+    DeliveryCreatedEvent, DeliverySuccessEvent, OrderCancelSuccessEvent, OrderRejectedEvent,
+    OrderReservedEvent,
 };
 use tracing::info;
 
@@ -70,6 +71,32 @@ pub fn order_cancel_success(
             .await?;
 
         info!("Order #{} has been cancelled", payload.order_id);
+
+        delivery.ack(BasicAckOptions::default()).await?;
+
+        Ok(())
+    })
+}
+
+pub fn delivery_created(
+    delivery: Delivery,
+    state: Arc<AppState>,
+) -> BoxFuture<'static, Result<()>> {
+    Box::pin(async move {
+        let conn = &mut state.db_pool.get().await?;
+        let payload: DeliveryCreatedEvent = serde_json::from_str(str::from_utf8(&delivery.data)?)?;
+        info!("Received event: {:?}", payload);
+
+        diesel::update(orders::table)
+            .filter(orders::id.eq(payload.order_id))
+            .set(orders::delivery_id.eq(payload.delivery_id))
+            .execute(conn)
+            .await?;
+
+        info!(
+            "Delivery {} for Order #{} has been successfully created",
+            payload.delivery_id, payload.order_id
+        );
 
         delivery.ack(BasicAckOptions::default()).await?;
 

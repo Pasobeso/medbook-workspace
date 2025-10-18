@@ -56,6 +56,7 @@ pub struct OrderEntity {
     pub patient_id: i32,
     pub status: String,
     pub order_type: String,
+    pub delivery_id: Option<Uuid>,
     pub delivery_address: Value,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

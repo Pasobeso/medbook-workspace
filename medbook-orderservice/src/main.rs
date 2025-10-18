@@ -17,6 +17,10 @@ async fn main() -> Result<()> {
             ("orders.order_rejected", consumers::orders::order_rejected),
             ("orders.order_reserved", consumers::orders::order_reserved),
             (
+                "orders.delivery_created",
+                consumers::orders::delivery_created,
+            ),
+            (
                 "orders.delivery_success",
                 consumers::orders::delivery_success,
             ),

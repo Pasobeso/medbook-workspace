@@ -51,6 +51,12 @@ pub struct DeliveryOrderRequestEvent {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct DeliveryCreatedEvent {
+    pub order_id: i32,
+    pub delivery_id: Uuid,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct DeliverySuccessEvent {
     pub order_id: i32,
 }

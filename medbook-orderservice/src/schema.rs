@@ -26,6 +26,7 @@ diesel::table! {
         patient_id -> Int4,
         status -> Text,
         order_type -> Text,
+        delivery_id -> Nullable<Uuid>,
         delivery_address -> Jsonb,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
