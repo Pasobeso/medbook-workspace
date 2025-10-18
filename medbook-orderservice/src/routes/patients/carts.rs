@@ -18,6 +18,7 @@ use medbook_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    api::get_product_unit_prices,
     models::{CartEntity, CartItemEntity, CreateCartEntity, CreateCartItemEntity},
     schema::{
         cart_items::{self},
@@ -64,6 +65,7 @@ async fn get_carts(State(state): State<AppState>) -> Result<impl IntoResponse, A
 struct GetCartRes {
     pub cart: CartEntity,
     pub cart_items: Vec<CartItemEntity>,
+    pub total_price: f32,
 }
 
 async fn get_cart(
@@ -98,7 +100,22 @@ async fn get_cart(
         .await
         .context("Failed to get cart items")?;
 
-    Ok(Json(GetCartRes { cart, cart_items }))
+    let cart_item_ids = cart_items.iter().map(|item| item.product_id).collect();
+    let unit_prices = get_product_unit_prices(state.http_client, cart_item_ids).await?;
+
+    let total_price: f32 = cart_items
+        .iter()
+        .map(|item| {
+            let unit_price: f32 = unit_prices.get(&item.product_id).copied().unwrap_or(0.0);
+            item.quantity as f32 * unit_price
+        })
+        .sum();
+
+    Ok(Json(GetCartRes {
+        cart,
+        cart_items,
+        total_price,
+    }))
 }
 
 /// Fetch all carts belonging to the authenticated patient.
@@ -126,6 +143,9 @@ async fn get_my_carts(
         .await
         .context("Failed to get cart items")?;
 
+    let cart_item_ids = cart_items.iter().map(|item| item.product_id).collect();
+    let unit_prices = get_product_unit_prices(state.http_client, cart_item_ids).await?;
+
     let mut group: HashMap<i32, Vec<CartItemEntity>> = HashMap::new();
     for item in cart_items {
         group.entry(item.cart_id).or_default().push(item);
@@ -133,9 +153,20 @@ async fn get_my_carts(
 
     let carts_with_items: Vec<GetCartRes> = carts
         .into_iter()
-        .map(|cart| GetCartRes {
-            cart_items: group.remove(&cart.id).unwrap_or_default(),
-            cart,
+        .map(|cart| {
+            let cart_items = group.remove(&cart.id).unwrap_or_default();
+            let total_price = cart_items
+                .iter()
+                .map(|item| {
+                    let unit_price = unit_prices.get(&item.product_id).copied().unwrap_or(0.0);
+                    item.quantity as f32 * unit_price
+                })
+                .sum();
+            GetCartRes {
+                cart_items,
+                cart,
+                total_price,
+            }
         })
         .collect();
 
@@ -189,12 +220,6 @@ struct CreateCartRes {
     pub cart_items: Vec<CartItemEntity>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Product {
-    pub id: i32,
-    pub unit_price: f32,
-}
-
 async fn create_cart(
     State(state): State<AppState>,
     Extension(patient_id): Extension<i32>,
@@ -205,27 +230,6 @@ async fn create_cart(
         .get()
         .await
         .context("Failed to obtain a DB connection pool")?;
-
-    let ids = body
-        .cart_items
-        .iter()
-        .map(|item| item.product_id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-
-    let products: Vec<Product> = state
-        .http_client
-        .get("http://localhost:3000/products")
-        .query(&[("ids", ids)])
-        .send()
-        .await
-        .map_err(|_| AppError::ServiceUnreachable("InventoryService".into()))?
-        .json()
-        .await
-        .context("Failed to parse JSON")?;
-
-    let unit_prices: HashMap<i32, f32> =
-        products.into_iter().map(|p| (p.id, p.unit_price)).collect();
 
     let (cart, cart_items) = conn
         .transaction(move |tx| {
@@ -241,14 +245,10 @@ async fn create_cart(
                     .cart_items
                     .into_iter()
                     .filter(|item| item.quantity > 0)
-                    .map(|item| {
-                        let unit_price = unit_prices.get(&item.product_id).copied().unwrap_or(0.0);
-                        CreateCartItemEntity {
-                            cart_id: cart.id,
-                            product_id: item.product_id,
-                            quantity: item.quantity,
-                            unit_price,
-                        }
+                    .map(|item| CreateCartItemEntity {
+                        cart_id: cart.id,
+                        product_id: item.product_id,
+                        quantity: item.quantity,
                     })
                     .collect();
 
@@ -323,7 +323,6 @@ async fn update_cart(
                             cart_items::cart_id.eq(id),
                             cart_items::product_id.eq(item.product_id),
                             cart_items::quantity.eq(item.quantity),
-                            cart_items::unit_price.eq(1.0),
                         ))
                         .on_conflict((cart_items::cart_id, cart_items::product_id))
                         .do_update()

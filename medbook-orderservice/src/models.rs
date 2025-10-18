@@ -27,8 +27,6 @@ pub struct CartItemEntity {
     pub cart_id: i32,
     pub product_id: i32,
     pub quantity: i32,
-    pub unit_price: f32,
-    pub total_price: Option<f32>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -45,7 +43,6 @@ pub struct CreateCartItemEntity {
     pub cart_id: i32,
     pub product_id: i32,
     pub quantity: i32,
-    pub unit_price: f32,
 }
 
 // Orders

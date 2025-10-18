@@ -5,8 +5,6 @@ diesel::table! {
         cart_id -> Int4,
         product_id -> Int4,
         quantity -> Int4,
-        unit_price -> Float4,
-        total_price -> Nullable<Float4>,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
     }

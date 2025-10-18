@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    api::get_product_unit_prices,
     models::{CartItemEntity, CreateOrderEntity, OrderEntity},
     schema::{
         cart_items::{self},
@@ -104,9 +105,11 @@ async fn get_order(
         .await
         .context("Failed to get order items")?;
 
+    let cart_item_ids = order_items.iter().map(|item| item.product_id).collect();
+    let unit_prices = get_product_unit_prices(state.http_client, cart_item_ids).await?;
     let total_price: f32 = order_items
         .iter()
-        .map(|item| item.total_price.unwrap_or(0.0))
+        .map(|item| unit_prices.get(&item.product_id).copied().unwrap_or(0.0))
         .sum();
 
     Ok(StdResponse {
@@ -144,6 +147,9 @@ async fn get_my_orders(
         .await
         .context("Failed to get cart items")?;
 
+    let cart_item_ids = order_items.iter().map(|item| item.product_id).collect();
+    let unit_prices = get_product_unit_prices(state.http_client, cart_item_ids).await?;
+
     let mut group: HashMap<i32, Vec<CartItemEntity>> = HashMap::new();
     for item in order_items {
         group.entry(item.cart_id).or_default().push(item);
@@ -155,7 +161,7 @@ async fn get_my_orders(
             let order_items = group.remove(&order.cart_id).unwrap_or_default();
             let total_price: f32 = order_items
                 .iter()
-                .map(|item| item.total_price.unwrap_or(0.0))
+                .map(|item| unit_prices.get(&item.product_id).copied().unwrap_or(0.0))
                 .sum();
             GetOrderRes {
                 order_items,
